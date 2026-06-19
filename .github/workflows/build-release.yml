@@ -1,3 +1,4 @@
+# Build the pinned upstream.ref version on push; use "Run workflow" to pick any version.
 name: Build & Release Windows Installer
 
 # Builds PluginLoader.exe + PluginLoader_noconsole.exe from upstream decky-loader,
