@@ -1,0 +1,8 @@
+# Build workspace (cloned upstream + python venv)
+.build/
+
+# Built binaries
+dist/
+
+# Logs / scratch
+*.log

@@ -1,0 +1,111 @@
+name: Build & Release Windows PluginLoader
+
+# Builds PluginLoader.exe + PluginLoader_noconsole.exe from upstream decky-loader
+# and publishes them as a GitHub Release - the Windows binaries upstream never ships.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Upstream decky-loader ref to build (blank = use upstream.ref file)"
+        required: false
+        default: ""
+      publish:
+        description: "Publish a GitHub Release with the exes"
+        type: boolean
+        default: true
+  push:
+    paths:
+      - "upstream.ref"
+      - ".github/workflows/build-release.yml"
+  schedule:
+    - cron: "0 6 * * 1"   # weekly, Monday 06:00 UTC - catches new upstream fixes
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on Windows
+    runs-on: windows-2022
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Resolve upstream ref
+        id: ref
+        shell: bash
+        run: |
+          REF="${{ github.event.inputs.upstream_ref }}"
+          if [ -z "$REF" ]; then REF="$(tr -d '[:space:]' < upstream.ref)"; fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Building upstream decky-loader ref: $REF"
+
+      - name: Checkout upstream decky-loader
+        uses: actions/checkout@v4
+        with:
+          repository: SteamDeckHomebrew/decky-loader
+          ref: ${{ steps.ref.outputs.ref }}
+          path: upstream
+          fetch-depth: 0
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Python 3.11.7
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.7"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: false
+
+      - name: Install backend dependencies
+        working-directory: upstream/backend
+        run: |
+          poetry self add "poetry-dynamic-versioning[plugin]"
+          poetry install --no-interaction
+
+      - name: Build frontend
+        working-directory: upstream/frontend
+        run: |
+          npm i -g pnpm
+          pnpm i --frozen-lockfile --dangerously-allow-all-builds
+          pnpm run build
+
+      - name: Build backend exes (console + noconsole)
+        working-directory: upstream/backend
+        shell: pwsh
+        run: |
+          poetry dynamic-versioning
+          poetry run pyinstaller pyinstaller.spec
+          $env:DECKY_NOCONSOLE = 1
+          poetry run pyinstaller pyinstaller.spec
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PluginLoader-Win-${{ steps.ref.outputs.ref }}
+          path: |
+            upstream/backend/dist/PluginLoader.exe
+            upstream/backend/dist/PluginLoader_noconsole.exe
+
+      - name: Publish GitHub Release
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: win-${{ steps.ref.outputs.ref }}-${{ github.run_number }}
+          name: Windows PluginLoader (${{ steps.ref.outputs.ref }})
+          body: |
+            Windows build of decky-loader `${{ steps.ref.outputs.ref }}`,
+            produced from upstream source by this repo's CI.
+
+            Install with `install.ps1`, or drop these into `%USERPROFILE%\homebrew\services`.
+          files: |
+            upstream/backend/dist/PluginLoader.exe
+            upstream/backend/dist/PluginLoader_noconsole.exe
+          generate_release_notes: true
