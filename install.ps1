@@ -78,8 +78,8 @@ foreach ($exe in 'PluginLoader.exe', 'PluginLoader_noconsole.exe') {
     }
 }
 Write-Step "Deploying new exes to $services"
-Copy-Item (Join-Path $dist 'PluginLoader.exe') $services -Force
-Copy-Item $noconsole $services -Force
+Copy-ItemWithRetry -Path (Join-Path $dist 'PluginLoader.exe')           -Destination (Join-Path $services 'PluginLoader.exe')
+Copy-ItemWithRetry -Path (Join-Path $dist 'PluginLoader_noconsole.exe') -Destination (Join-Path $services 'PluginLoader_noconsole.exe')
 
 Write-Step "Registering elevated autostart task '$DeckyTaskName' (at logon, highest privileges)"
 Register-DeckyTask -ExePath (Join-Path $services 'PluginLoader_noconsole.exe')

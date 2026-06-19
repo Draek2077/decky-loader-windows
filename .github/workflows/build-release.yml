@@ -20,6 +20,8 @@ on:
     paths:
       - "upstream.ref"
       - "installer/**"
+      - "lib/**"
+      - "*.ps1"
       - ".github/workflows/build-release.yml"
   schedule:
     - cron: "0 6 * * 1"   # weekly, Monday 06:00 UTC - catches new upstream fixes
@@ -127,7 +129,9 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: win-${{ steps.ref.outputs.ref }}-${{ github.run_number }}
+          # One release per upstream version. Rebuilding the same version replaces
+          # its assets in place; a different version gets its own release.
+          tag_name: win-${{ steps.ref.outputs.ref }}
           name: Decky Loader for Windows (${{ steps.ref.outputs.ref }})
           prerelease: ${{ steps.ref.outputs.prerelease }}
           body: |

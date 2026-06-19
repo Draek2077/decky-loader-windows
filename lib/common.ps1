@@ -55,9 +55,32 @@ function Stop-DeckyTask {
     if (Get-ScheduledTask -TaskName $script:DeckyTaskName -ErrorAction SilentlyContinue) {
         Stop-ScheduledTask -TaskName $script:DeckyTaskName -ErrorAction SilentlyContinue
     }
-    Start-Sleep -Seconds 1
-    Get-Process 'PluginLoader', 'PluginLoader_noconsole' -ErrorAction SilentlyContinue | ForEach-Object {
-        try { Stop-Process -Id $_.Id -Force -ErrorAction Stop } catch { }
+    # Force-kill loader processes, then WAIT until they are truly gone. Stop-Process
+    # returns before the OS finishes teardown, and a half-dead process keeps its exe
+    # locked - which would make the file replacement fail. Re-kill stragglers each pass.
+    $deadline = (Get-Date).AddSeconds(20)
+    do {
+        $procs = Get-Process 'PluginLoader', 'PluginLoader_noconsole' -ErrorAction SilentlyContinue
+        foreach ($p in $procs) { try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch { } }
+        if ($procs) { Start-Sleep -Milliseconds 300 }
+    } while ($procs -and (Get-Date) -lt $deadline)
+}
+
+# Copy a file, retrying briefly if the destination is momentarily locked (belt-and-
+# suspenders on top of Stop-DeckyTask's wait, so deploys never fail on a transient lock).
+function Copy-ItemWithRetry {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Destination,
+        [int]$Retries = 12,
+        [int]$DelayMs = 500
+    )
+    for ($i = 1; $i -le $Retries; $i++) {
+        try { Copy-Item -LiteralPath $Path -Destination $Destination -Force -ErrorAction Stop; return }
+        catch {
+            if ($i -eq $Retries) { throw }
+            Start-Sleep -Milliseconds $DelayMs
+        }
     }
 }
 
