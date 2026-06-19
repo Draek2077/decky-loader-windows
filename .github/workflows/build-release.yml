@@ -81,8 +81,8 @@ jobs:
       - name: Install backend dependencies
         working-directory: upstream/backend
         run: |
-          poetry self add "poetry-dynamic-versioning[plugin]"
-          poetry install --no-interaction
+          C:\Users\runneradmin\.local\bin\poetry self add "poetry-dynamic-versioning[plugin]"
+          C:\Users\runneradmin\.local\bin\poetry install --no-interaction
 
       - name: Build frontend
         working-directory: upstream/frontend
@@ -95,10 +95,10 @@ jobs:
         working-directory: upstream/backend
         shell: pwsh
         run: |
-          poetry dynamic-versioning
-          poetry run pyinstaller pyinstaller.spec
+          C:\Users\runneradmin\.local\bin\poetry dynamic-versioning
+          C:\Users\runneradmin\.local\bin\poetry run pyinstaller pyinstaller.spec
           $env:DECKY_NOCONSOLE = 1
-          poetry run pyinstaller pyinstaller.spec
+          C:\Users\runneradmin\.local\bin\poetry run pyinstaller pyinstaller.spec
 
       - name: Stage built exes for the installer
         shell: pwsh
