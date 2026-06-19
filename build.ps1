@@ -79,17 +79,30 @@ $venvPyInstaller = Join-Path $venvScripts 'pyinstaller.exe'
 Write-Step 'Installing build tooling (poetry + pyinstaller) into venv'
 Invoke-Native $venvPython -m pip install -U pip 'poetry-dynamic-versioning[plugin]' poetry pyinstaller
 
-Write-Step 'Building backend exes (PyInstaller: console + noconsole)'
+Write-Step 'Installing backend dependencies (poetry)'
+$prevPath = $env:PATH
 Push-Location (Join-Path $src 'backend')
 try {
+    # Make poetry target our buildenv (not system Python). Without VIRTUAL_ENV,
+    # poetry + virtualenvs.create=false picks the system interpreter and hangs
+    # building the project wheel. Disable keyring to avoid the classic Windows
+    # poetry credential-lookup hang.
     $env:POETRY_VIRTUALENVS_CREATE = 'false'
+    $env:VIRTUAL_ENV = $venv
+    $env:PATH = "$venvScripts;$env:PATH"
+    $env:PYTHON_KEYRING_BACKEND = 'keyring.backends.null.Keyring'
     Invoke-Native $venvPoetry install --no-interaction
+
+    Write-Step 'Building backend exes (PyInstaller: console + noconsole)'
     Invoke-Native $venvPyInstaller pyinstaller.spec --noconfirm
     $env:DECKY_NOCONSOLE = '1'
     try { Invoke-Native $venvPyInstaller pyinstaller.spec --noconfirm }
     finally { Remove-Item Env:\DECKY_NOCONSOLE -ErrorAction SilentlyContinue }
 } finally {
     Remove-Item Env:\POETRY_VIRTUALENVS_CREATE -ErrorAction SilentlyContinue
+    Remove-Item Env:\VIRTUAL_ENV -ErrorAction SilentlyContinue
+    Remove-Item Env:\PYTHON_KEYRING_BACKEND -ErrorAction SilentlyContinue
+    $env:PATH = $prevPath
     Pop-Location
 }
 

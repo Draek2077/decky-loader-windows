@@ -93,7 +93,10 @@ function Invoke-Native {
     $prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & $file @rest 2>&1 | ForEach-Object { Write-Host $_ }
+        # Let output flow straight to the pipeline. Do NOT route through
+        # Write-Host per line: it is pathologically slow in a redirected shell
+        # and throttles chatty tools (PyInstaller) to a crawl.
+        & $file @rest 2>&1
         $code = $LASTEXITCODE
     } finally { $ErrorActionPreference = $prev }
     if ($code -ne 0) { throw "Command failed (exit $code): $file $($rest -join ' ')" }
