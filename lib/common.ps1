@@ -81,3 +81,46 @@ function Write-TextFileNoBom {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Content)
     [System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding($false)))
 }
+
+# Run a native command, streaming its output, and throw only on a non-zero exit
+# code. These are simple functions (no param block) so dash-prefixed args like
+# '-m' or '--force' flow into $args instead of being bound as our parameters.
+# We relax $ErrorActionPreference because git/pnpm/pyinstaller write normal
+# status to stderr, which 'Stop' would otherwise turn into fatal errors.
+function Invoke-Native {
+    $file = $args[0]
+    $rest = if ($args.Count -gt 1) { $args[1..($args.Count - 1)] } else { @() }
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $file @rest 2>&1 | ForEach-Object { Write-Host $_ }
+        $code = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $prev }
+    if ($code -ne 0) { throw "Command failed (exit $code): $file $($rest -join ' ')" }
+}
+
+# Like Invoke-Native but captures and returns stdout (trimmed) instead of streaming.
+function Get-Native {
+    $file = $args[0]
+    $rest = if ($args.Count -gt 1) { $args[1..($args.Count - 1)] } else { @() }
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out = & $file @rest 2>&1
+        $code = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $prev }
+    if ($code -ne 0) { throw "Command failed (exit $code): $file $($rest -join ' ')" }
+    return (($out | Out-String).Trim())
+}
+
+# True when $Ref is a branch (a remote-tracking ref exists); false for tags/commits.
+function Test-GitBranch {
+    param([Parameter(Mandatory)][string]$Ref)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & git rev-parse --verify --quiet "refs/remotes/origin/$Ref" 2>&1 | Out-Null
+        $code = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $prev }
+    return ($code -eq 0)
+}

@@ -14,18 +14,22 @@
 [CmdletBinding()]
 param(
     [string]$Ref,
-    [string]$WorkDir = (Join-Path $PSScriptRoot '.build'),
-    [string]$OutDir  = (Join-Path $PSScriptRoot 'dist'),
+    [string]$WorkDir,
+    [string]$OutDir,
     [string]$UpstreamRepo = 'https://github.com/SteamDeckHomebrew/decky-loader.git'
 )
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'lib\common.ps1')
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+. (Join-Path $ScriptDir 'lib\common.ps1')
+if (-not $WorkDir) { $WorkDir = Join-Path $ScriptDir '.build' }
+if (-not $OutDir)  { $OutDir  = Join-Path $ScriptDir 'dist' }
 
 if (-not $Ref) {
-    $refFile = Join-Path $PSScriptRoot 'upstream.ref'
+    $refFile = Join-Path $ScriptDir 'upstream.ref'
     if (Test-Path $refFile) { $Ref = (Get-Content $refFile -Raw).Trim() }
 }
 if (-not $Ref) { throw 'No upstream ref given and upstream.ref is missing/empty.' }
+if ($Ref -match '^[0-9]') { $Ref = "v$Ref" }   # bare version (3.2.4) -> upstream tag form (v3.2.4)
 Write-Step "Building decky-loader Windows binaries (upstream ref: $Ref)"
 
 foreach ($t in 'git', 'node', 'npm', 'python') {
@@ -38,60 +42,52 @@ New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 $src = Join-Path $WorkDir 'decky-loader'
 if (-not (Test-Path (Join-Path $src '.git'))) {
     Write-Step "Cloning upstream -> $src"
-    git clone --filter=blob:none $UpstreamRepo $src
-    if ($LASTEXITCODE -ne 0) { throw 'git clone failed.' }
+    Invoke-Native git clone --filter=blob:none $UpstreamRepo $src
 }
 
 Push-Location $src
 try {
-    git fetch --all --tags --prune --force | Out-Null
-    git checkout --force $Ref
-    if ($LASTEXITCODE -ne 0) { throw "git checkout '$Ref' failed." }
-    git reset --hard "origin/$Ref" 2>$null   # fast-forward branches; harmless for tags
-    $commit = (git rev-parse --short HEAD).Trim()
+    Invoke-Native git fetch --all --tags --prune --force
+    Invoke-Native git checkout --force $Ref
+    if (Test-GitBranch $Ref) { Invoke-Native git reset --hard "origin/$Ref" }
+    $commit = Get-Native git rev-parse --short HEAD
     Write-Step "Upstream checked out at $Ref ($commit)"
 } finally { Pop-Location }
 
 if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
     Write-Step 'Installing pnpm (npm global)'
-    npm install -g pnpm
-    if ($LASTEXITCODE -ne 0) { throw 'pnpm install failed.' }
+    Invoke-Native npm install -g pnpm
 }
 
 Write-Step 'Building frontend (React)'
 Push-Location (Join-Path $src 'frontend')
 try {
-    pnpm install --frozen-lockfile --dangerously-allow-all-builds
-    if ($LASTEXITCODE -ne 0) { throw 'pnpm install (frontend) failed.' }
-    pnpm run build
-    if ($LASTEXITCODE -ne 0) { throw 'frontend build failed.' }
+    Invoke-Native pnpm install --frozen-lockfile --dangerously-allow-all-builds
+    Invoke-Native pnpm run build
 } finally { Pop-Location }
 
 $venv = Join-Path $WorkDir 'buildenv'
 $venvScripts = Join-Path $venv 'Scripts'
 if (-not (Test-Path (Join-Path $venvScripts 'python.exe'))) {
     Write-Step 'Creating isolated Python build venv'
-    python -m venv $venv
-    if ($LASTEXITCODE -ne 0) { throw 'venv creation failed.' }
+    Invoke-Native python -m venv $venv
 }
+$venvPython      = Join-Path $venvScripts 'python.exe'
+$venvPoetry      = Join-Path $venvScripts 'poetry.exe'
+$venvPyInstaller = Join-Path $venvScripts 'pyinstaller.exe'
+
 Write-Step 'Installing build tooling (poetry + pyinstaller) into venv'
-& (Join-Path $venvScripts 'python.exe') -m pip install -U pip 'poetry-dynamic-versioning[plugin]' poetry pyinstaller
-if ($LASTEXITCODE -ne 0) { throw 'pip install of build tooling failed.' }
+Invoke-Native $venvPython -m pip install -U pip 'poetry-dynamic-versioning[plugin]' poetry pyinstaller
 
 Write-Step 'Building backend exes (PyInstaller: console + noconsole)'
 Push-Location (Join-Path $src 'backend')
 try {
     $env:POETRY_VIRTUALENVS_CREATE = 'false'
-    & (Join-Path $venvScripts 'poetry.exe') install --no-interaction
-    if ($LASTEXITCODE -ne 0) { throw 'poetry install (backend) failed.' }
-    try { & (Join-Path $venvScripts 'poetry.exe') dynamic-versioning 2>&1 | Out-Null } catch { }
-    & (Join-Path $venvScripts 'pyinstaller.exe') pyinstaller.spec --noconfirm
-    if ($LASTEXITCODE -ne 0) { throw 'pyinstaller (console) failed.' }
+    Invoke-Native $venvPoetry install --no-interaction
+    Invoke-Native $venvPyInstaller pyinstaller.spec --noconfirm
     $env:DECKY_NOCONSOLE = '1'
-    & (Join-Path $venvScripts 'pyinstaller.exe') pyinstaller.spec --noconfirm
-    $rc = $LASTEXITCODE
-    Remove-Item Env:\DECKY_NOCONSOLE -ErrorAction SilentlyContinue
-    if ($rc -ne 0) { throw 'pyinstaller (noconsole) failed.' }
+    try { Invoke-Native $venvPyInstaller pyinstaller.spec --noconfirm }
+    finally { Remove-Item Env:\DECKY_NOCONSOLE -ErrorAction SilentlyContinue }
 } finally {
     Remove-Item Env:\POETRY_VIRTUALENVS_CREATE -ErrorAction SilentlyContinue
     Pop-Location

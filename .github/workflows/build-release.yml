@@ -1,22 +1,24 @@
-name: Build & Release Windows PluginLoader
+name: Build & Release Windows Installer
 
-# Builds PluginLoader.exe + PluginLoader_noconsole.exe from upstream decky-loader
-# and publishes them as a GitHub Release - the Windows binaries upstream never ships.
+# Builds PluginLoader.exe + PluginLoader_noconsole.exe from upstream decky-loader,
+# packages them into a single setup.exe (Inno Setup) that performs the full install,
+# and publishes that installer as a GitHub Release.
 
 on:
   workflow_dispatch:
     inputs:
-      upstream_ref:
-        description: "Upstream decky-loader ref to build (blank = use upstream.ref file)"
+      version:
+        description: "Decky version to build, e.g. 3.2.4 or 3.2.5-pre1 (blank = use upstream.ref). Leading 'v' optional."
         required: false
         default: ""
       publish:
-        description: "Publish a GitHub Release with the exes"
+        description: "Publish a GitHub Release with the installer"
         type: boolean
         default: true
   push:
     paths:
       - "upstream.ref"
+      - "installer/**"
       - ".github/workflows/build-release.yml"
   schedule:
     - cron: "0 6 * * 1"   # weekly, Monday 06:00 UTC - catches new upstream fixes
@@ -26,7 +28,7 @@ permissions:
 
 jobs:
   build:
-    name: Build on Windows
+    name: Build installer on Windows
     runs-on: windows-2022
     steps:
       - name: Checkout this repo
@@ -36,10 +38,21 @@ jobs:
         id: ref
         shell: bash
         run: |
-          REF="${{ github.event.inputs.upstream_ref }}"
-          if [ -z "$REF" ]; then REF="$(tr -d '[:space:]' < upstream.ref)"; fi
+          IN="${{ github.event.inputs.version }}"
+          if [ -z "$IN" ]; then IN="$(tr -d '[:space:]' < upstream.ref)"; fi
+          REF="$IN"
+          case "$REF" in
+            [0-9]*) REF="v$REF" ;;   # bare version (3.2.4) -> upstream tag form (v3.2.4)
+          esac
+          VERSION="${REF#v}"          # filename/display version: v3.2.4 -> 3.2.4
+          case "$REF" in
+            *-pre*|*-rc*|*-beta*|*-alpha*) PRE=true ;;
+            *) PRE=false ;;
+          esac
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "Building upstream decky-loader ref: $REF"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          echo "Building decky-loader $VERSION (git ref $REF, prerelease=$PRE)"
 
       - name: Checkout upstream decky-loader
         uses: actions/checkout@v4
@@ -86,26 +99,48 @@ jobs:
           $env:DECKY_NOCONSOLE = 1
           poetry run pyinstaller pyinstaller.spec
 
-      - name: Upload build artifacts
+      - name: Stage built exes for the installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item upstream/backend/dist/PluginLoader.exe dist/ -Force
+          Copy-Item upstream/backend/dist/PluginLoader_noconsole.exe dist/ -Force
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=${{ steps.ref.outputs.version }}" `
+            installer\decky-loader-windows.iss
+
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PluginLoader-Win-${{ steps.ref.outputs.ref }}
-          path: |
-            upstream/backend/dist/PluginLoader.exe
-            upstream/backend/dist/PluginLoader_noconsole.exe
+          name: decky-loader-${{ steps.ref.outputs.version }}-setup
+          path: installer/Output/*.exe
 
       - name: Publish GitHub Release
         if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: win-${{ steps.ref.outputs.ref }}-${{ github.run_number }}
-          name: Windows PluginLoader (${{ steps.ref.outputs.ref }})
+          name: Decky Loader for Windows (${{ steps.ref.outputs.ref }})
+          prerelease: ${{ steps.ref.outputs.prerelease }}
           body: |
-            Windows build of decky-loader `${{ steps.ref.outputs.ref }}`,
-            produced from upstream source by this repo's CI.
+            One-click Windows installer for Decky Loader, built from upstream
+            decky-loader `${{ steps.ref.outputs.ref }}` by this repo's CI.
 
-            Install with `install.ps1`, or drop these into `%USERPROFILE%\homebrew\services`.
+            **Download `decky-loader-${{ steps.ref.outputs.version }}-setup.exe` and run it.** It deploys
+            the loader, enables Steam CEF remote debugging, and sets up autostart.
+            Restart Steam afterwards and open the Quick Access menu.
+
+            Raw binaries (`PluginLoader.exe`, `PluginLoader_noconsole.exe`) are
+            attached for advanced/manual use.
           files: |
-            upstream/backend/dist/PluginLoader.exe
-            upstream/backend/dist/PluginLoader_noconsole.exe
+            installer/Output/*.exe
+            dist/PluginLoader.exe
+            dist/PluginLoader_noconsole.exe
           generate_release_notes: true

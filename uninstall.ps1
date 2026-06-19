@@ -11,10 +11,11 @@
 [CmdletBinding()]
 param([switch]$Purge)
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'lib\common.ps1')
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+. (Join-Path $ScriptDir 'lib\common.ps1')
 
 if (-not (Test-Admin)) {
-    Invoke-SelfElevate -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
+    Invoke-SelfElevate -ScriptPath (Join-Path $ScriptDir 'uninstall.ps1') -BoundParameters $PSBoundParameters
     return
 }
 

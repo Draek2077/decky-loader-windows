@@ -1,0 +1,11 @@
+Decky Loader is installed.
+
+Final step: fully quit and restart Steam (exit from the system tray, not just
+the window). Then open the Quick Access menu in Big Picture mode - the Decky
+plug icon will be there.
+
+Notes:
+- Decky autostarts at logon via the elevated "Decky Loader" scheduled task.
+- Your plugins folder starts empty; install plugins from the in-app Decky store.
+- The in-app "update" button does nothing on Windows; update by running the
+  latest installer from the project's GitHub Releases instead.

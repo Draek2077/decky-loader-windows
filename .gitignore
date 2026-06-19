@@ -4,5 +4,8 @@
 # Built binaries
 dist/
 
+# Inno Setup output
+installer/Output/
+
 # Logs / scratch
 *.log

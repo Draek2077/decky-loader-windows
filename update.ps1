@@ -21,7 +21,8 @@ param(
     [switch]$NoStart
 )
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'lib\common.ps1')
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+. (Join-Path $ScriptDir 'lib\common.ps1')
 
 if (-not $Ref) {
     Write-Step 'Resolving latest upstream release tag from GitHub'
@@ -34,11 +35,11 @@ if (-not $Ref) {
 }
 if (-not $Ref) { throw 'Could not resolve an upstream ref.' }
 Write-Step "Updating to upstream ref: $Ref"
-Write-TextFileNoBom -Path (Join-Path $PSScriptRoot 'upstream.ref') -Content $Ref
+Write-TextFileNoBom -Path (Join-Path $ScriptDir 'upstream.ref') -Content $Ref
 
 # Build (no admin), then deploy via install.ps1 -NoBuild (self-elevates for deploy only).
-& (Join-Path $PSScriptRoot 'build.ps1') -Ref $Ref
+& (Join-Path $ScriptDir 'build.ps1') -Ref $Ref
 
 $installArgs = @('-Ref', $Ref, '-NoBuild')
 if ($NoStart) { $installArgs += '-NoStart' }
-& (Join-Path $PSScriptRoot 'install.ps1') @installArgs
+& (Join-Path $ScriptDir 'install.ps1') @installArgs

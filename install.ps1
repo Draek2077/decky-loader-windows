@@ -23,17 +23,18 @@ param(
     [switch]$NoStart
 )
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'lib\common.ps1')
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($PSCommandPath) { Split-Path -Parent $PSCommandPath } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+. (Join-Path $ScriptDir 'lib\common.ps1')
 
 # Build first (does not need admin), THEN elevate only for the deploy steps.
-$dist = Join-Path $PSScriptRoot 'dist'
+$dist = Join-Path $ScriptDir 'dist'
 if (-not $NoBuild) {
-    & (Join-Path $PSScriptRoot 'build.ps1') -Ref $Ref
+    & (Join-Path $ScriptDir 'build.ps1') -Ref $Ref
     $NoBuild = $true   # already built; don't rebuild after elevation
 }
 
 if (-not (Test-Admin)) {
-    Invoke-SelfElevate -ScriptPath $PSCommandPath -BoundParameters @{ Ref = $Ref; NoBuild = [switch]$true; NoStart = $NoStart }
+    Invoke-SelfElevate -ScriptPath (Join-Path $ScriptDir 'install.ps1') -BoundParameters @{ Ref = $Ref; NoBuild = [switch]$true; NoStart = $NoStart }
     return
 }
 
